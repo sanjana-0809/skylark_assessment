@@ -1,0 +1,910 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aerial GCP Pose Estimation — Skylark Drones Assignment</title>
+<meta name="description" content="Multi-task heatmap deep learning model for ground control point localization in aerial drone imagery. Built for Skylark Drones.">
+
+<!-- Fonts: editorial serif + technical mono -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,700;9..144,900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
+<style>
+:root {
+  --ink: #0f0f0f;
+  --paper: #fafaf7;
+  --paper-warm: #f1efe7;
+  --rule: #1a1a1a;
+  --accent: #d62828;     /* signal red — like the marker overlay */
+  --accent-soft: rgba(214, 40, 40, 0.08);
+  --green: #2d5016;
+  --gray: #6b6b6b;
+  --gray-light: #d4d2c8;
+
+  --serif: "Fraunces", Georgia, serif;
+  --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+
+  --max: 1180px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--serif);
+  background: var(--paper);
+  color: var(--ink);
+  line-height: 1.55;
+  font-feature-settings: "ss01", "ss02";
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;
+}
+
+/* Subtle paper grain */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(0,0,0,0.015) 1px, transparent 1px),
+    radial-gradient(circle at 70% 70%, rgba(0,0,0,0.015) 1px, transparent 1px);
+  background-size: 3px 3px, 4px 4px;
+  pointer-events: none;
+  z-index: 1;
+}
+
+main { position: relative; z-index: 2; }
+
+/* ============ TOP BAR ============ */
+.topbar {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--rule);
+  padding: 12px 0;
+  background: var(--paper);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+.topbar-inner {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 32px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.topbar-left { display: flex; gap: 24px; align-items: center; }
+.topbar-meta { color: var(--gray); }
+.topbar-right { display: flex; gap: 20px; }
+.topbar a {
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+.topbar a:hover { border-bottom-color: var(--ink); }
+
+/* ============ HERO ============ */
+.hero {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 80px 32px 60px;
+  border-bottom: 1px solid var(--rule);
+}
+.hero-tag {
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.hero-tag::before {
+  content: "";
+  width: 24px;
+  height: 1px;
+  background: var(--accent);
+}
+.hero h1 {
+  font-family: var(--serif);
+  font-size: clamp(48px, 8vw, 96px);
+  font-weight: 900;
+  line-height: 0.95;
+  letter-spacing: -0.04em;
+  margin-bottom: 32px;
+  font-variation-settings: "opsz" 96;
+}
+.hero h1 em {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--accent);
+}
+.hero-lede {
+  font-family: var(--serif);
+  font-size: clamp(18px, 2vw, 22px);
+  line-height: 1.5;
+  max-width: 720px;
+  color: #2a2a2a;
+  margin-bottom: 48px;
+}
+.hero-meta {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+  border-top: 1px solid var(--rule);
+  padding-top: 24px;
+}
+.hero-meta-item {
+  border-right: 1px solid var(--gray-light);
+  padding: 0 24px;
+}
+.hero-meta-item:first-child { padding-left: 0; }
+.hero-meta-item:last-child { border-right: none; }
+.hero-meta-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray);
+  margin-bottom: 6px;
+}
+.hero-meta-value {
+  font-family: var(--serif);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+/* ============ KPI BAND ============ */
+.kpi-band {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 64px 0;
+}
+.kpi-grid {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 32px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0;
+}
+.kpi {
+  border-right: 1px solid rgba(255,255,255,0.15);
+  padding: 0 32px;
+}
+.kpi:first-child { padding-left: 0; }
+.kpi:last-child { border-right: none; padding-right: 0; }
+.kpi-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: rgba(255,255,255,0.6);
+  margin-bottom: 12px;
+}
+.kpi-value {
+  font-family: var(--serif);
+  font-size: clamp(40px, 5vw, 64px);
+  font-weight: 700;
+  line-height: 1;
+  font-variation-settings: "opsz" 64;
+}
+.kpi-sub {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: rgba(255,255,255,0.5);
+  margin-top: 8px;
+}
+
+/* ============ SECTION ============ */
+section {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 96px 32px;
+  border-bottom: 1px solid var(--rule);
+}
+
+.section-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 16px;
+}
+
+.section-title {
+  font-family: var(--serif);
+  font-size: clamp(32px, 5vw, 56px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  margin-bottom: 32px;
+  max-width: 800px;
+  font-variation-settings: "opsz" 48;
+}
+
+.section-title em {
+  font-style: italic;
+  font-weight: 400;
+}
+
+.prose {
+  font-size: 19px;
+  line-height: 1.65;
+  color: #1a1a1a;
+  max-width: 720px;
+  margin-bottom: 24px;
+}
+.prose strong { font-weight: 700; }
+.prose em { color: var(--accent); font-style: italic; }
+.prose code {
+  font-family: var(--mono);
+  font-size: 0.85em;
+  background: var(--paper-warm);
+  padding: 2px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--gray-light);
+}
+
+/* ============ TWO COL ============ */
+.two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 64px;
+  align-items: start;
+}
+.two-col-wide-left {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 64px;
+}
+
+/* ============ FIGURE ============ */
+figure {
+  margin: 32px 0;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+  overflow: hidden;
+}
+figure img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+figcaption {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--gray);
+  padding: 12px 16px;
+  border-top: 1px solid var(--gray-light);
+  background: var(--paper-warm);
+}
+
+/* ============ JOURNEY TABLE ============ */
+.journey {
+  border: 1px solid var(--rule);
+  margin-top: 32px;
+}
+.journey-row {
+  display: grid;
+  grid-template-columns: 60px 1fr 120px 1fr;
+  border-bottom: 1px solid var(--gray-light);
+  align-items: center;
+  transition: background 0.2s;
+}
+.journey-row:last-child { border-bottom: none; }
+.journey-row:hover { background: var(--paper-warm); }
+.journey-row.success {
+  background: var(--accent-soft);
+  border-top: 2px solid var(--accent);
+  border-bottom: none;
+}
+.journey-row.success:hover {
+  background: rgba(214, 40, 40, 0.12);
+}
+.journey-num {
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 700;
+  text-align: center;
+  padding: 24px 0;
+  color: var(--gray);
+  border-right: 1px solid var(--gray-light);
+}
+.journey-row.success .journey-num { color: var(--accent); }
+.journey-approach {
+  padding: 24px;
+  font-family: var(--serif);
+  font-size: 16px;
+  border-right: 1px solid var(--gray-light);
+}
+.journey-approach strong { font-weight: 600; }
+.journey-pck {
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  text-align: center;
+  padding: 24px 16px;
+  border-right: 1px solid var(--gray-light);
+}
+.journey-row.success .journey-pck { color: var(--accent); }
+.journey-row:not(.success) .journey-pck { color: var(--gray); }
+.journey-lesson {
+  padding: 24px;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-style: italic;
+  color: #2a2a2a;
+}
+.journey-header {
+  display: grid;
+  grid-template-columns: 60px 1fr 120px 1fr;
+  background: var(--ink);
+  color: var(--paper);
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.journey-header > div {
+  padding: 14px 24px;
+  border-right: 1px solid rgba(255,255,255,0.15);
+}
+.journey-header > div:first-child { text-align: center; padding: 14px 0; }
+.journey-header > div:nth-child(3) { text-align: center; padding: 14px 16px; }
+.journey-header > div:last-child { border-right: none; }
+
+/* ============ PULL QUOTE ============ */
+.pull-quote {
+  border-top: 2px solid var(--ink);
+  border-bottom: 2px solid var(--ink);
+  padding: 48px 0;
+  margin: 64px 0;
+  text-align: center;
+}
+.pull-quote-text {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: clamp(24px, 3.5vw, 36px);
+  line-height: 1.3;
+  font-weight: 400;
+  max-width: 800px;
+  margin: 0 auto;
+  letter-spacing: -0.01em;
+}
+.pull-quote-text em {
+  font-style: normal;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* ============ CALLOUT (data findings) ============ */
+.findings {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  border: 1px solid var(--rule);
+  margin-top: 32px;
+}
+.finding {
+  padding: 28px 32px;
+  border-right: 1px solid var(--gray-light);
+  border-bottom: 1px solid var(--gray-light);
+}
+.finding:nth-child(2n) { border-right: none; }
+.finding:nth-last-child(-n+2) { border-bottom: none; }
+.finding-label {
+  font-family: var(--mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  margin-bottom: 12px;
+}
+.finding-issue {
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.4;
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+.finding-fix {
+  font-family: var(--serif);
+  font-size: 14px;
+  font-style: italic;
+  color: var(--gray);
+  line-height: 1.5;
+}
+
+/* ============ CTA ============ */
+.cta-section {
+  background: var(--ink);
+  color: var(--paper);
+  padding: 96px 32px;
+  text-align: center;
+}
+.cta-inner {
+  max-width: 800px;
+  margin: 0 auto;
+}
+.cta-tag {
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 24px;
+}
+.cta-title {
+  font-family: var(--serif);
+  font-size: clamp(36px, 6vw, 64px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.025em;
+  margin-bottom: 24px;
+}
+.cta-title em { font-style: italic; font-weight: 400; }
+.cta-sub {
+  font-size: 19px;
+  color: rgba(255,255,255,0.7);
+  margin-bottom: 48px;
+  max-width: 560px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.cta-buttons {
+  display: flex;
+  gap: 16px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+.btn {
+  font-family: var(--mono);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 500;
+  padding: 18px 32px;
+  border: 1px solid var(--paper);
+  text-decoration: none;
+  color: var(--paper);
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+.btn:hover {
+  background: var(--paper);
+  color: var(--ink);
+}
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.btn-primary:hover {
+  background: var(--paper);
+  color: var(--ink);
+  border-color: var(--paper);
+}
+.btn::after {
+  content: "→";
+  transition: transform 0.2s;
+}
+.btn:hover::after {
+  transform: translateX(4px);
+}
+
+/* ============ FOOTER ============ */
+footer {
+  background: var(--paper);
+  padding: 48px 32px 32px;
+  border-top: 1px solid var(--rule);
+}
+.footer-inner {
+  max-width: var(--max);
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 24px;
+}
+.footer-mono {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--gray);
+}
+.footer-links {
+  display: flex;
+  gap: 24px;
+}
+.footer-links a {
+  font-family: var(--mono);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.2s;
+}
+.footer-links a:hover { border-bottom-color: var(--ink); }
+
+/* ============ ANIMATIONS ============ */
+/* Only hide if JS is present (set by script). Content visible by default for fallback. */
+.js-ready .fade-up {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.8s ease, transform 0.8s ease;
+}
+.js-ready .fade-up.in {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Stagger hero metrics on load */
+.hero-meta-item {
+  opacity: 0;
+  animation: meta-in 0.6s ease forwards;
+}
+.hero-meta-item:nth-child(1) { animation-delay: 0.1s; }
+.hero-meta-item:nth-child(2) { animation-delay: 0.2s; }
+.hero-meta-item:nth-child(3) { animation-delay: 0.3s; }
+.hero-meta-item:nth-child(4) { animation-delay: 0.4s; }
+
+@keyframes meta-in {
+  to { opacity: 1; }
+}
+
+.hero h1, .hero-lede, .hero-tag {
+  opacity: 0;
+  animation: hero-in 0.9s ease forwards;
+}
+.hero-tag { animation-delay: 0.1s; }
+.hero h1 { animation-delay: 0.2s; }
+.hero-lede { animation-delay: 0.4s; }
+
+@keyframes hero-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ============ RESPONSIVE ============ */
+@media (max-width: 900px) {
+  section { padding: 64px 24px; }
+  .hero { padding: 48px 24px 40px; }
+  .topbar-inner, .hero, section, .footer-inner, .kpi-grid { padding-left: 24px; padding-right: 24px; }
+  .topbar-meta { display: none; }
+  .hero-meta { grid-template-columns: 1fr 1fr; gap: 16px; }
+  .hero-meta-item { border-right: none; border-bottom: 1px solid var(--gray-light); padding: 12px 0; }
+  .hero-meta-item:nth-child(2n) { border-right: none; }
+  .kpi-grid { grid-template-columns: 1fr 1fr; gap: 32px 0; }
+  .kpi { border-right: none; padding: 16px 24px; }
+  .kpi:nth-child(2n+1) { border-right: 1px solid rgba(255,255,255,0.15); }
+  .two-col, .two-col-wide-left { grid-template-columns: 1fr; gap: 32px; }
+  .findings { grid-template-columns: 1fr; }
+  .finding { border-right: none; }
+  .finding:nth-last-child(-n+2) { border-bottom: 1px solid var(--gray-light); }
+  .finding:last-child { border-bottom: none; }
+  .journey-row, .journey-header { grid-template-columns: 40px 1fr; }
+  .journey-pck, .journey-lesson, .journey-header > div:nth-child(3), .journey-header > div:nth-child(4) {
+    display: none;
+  }
+}
+</style>
+</head>
+<body>
+
+<!-- ============ TOP BAR ============ -->
+<div class="topbar">
+  <div class="topbar-inner">
+    <div class="topbar-left">
+      <strong>SANJANA</strong>
+      <span class="topbar-meta">Skylark Drones · ML Assignment · 2026</span>
+    </div>
+    <div class="topbar-right">
+      <a href="#approach">Approach</a>
+      <a href="#results">Results</a>
+      <a href="#journey">Journey</a>
+      <a href="#demo">Demo</a>
+    </div>
+  </div>
+</div>
+
+<main>
+
+<!-- ============ HERO ============ -->
+<header class="hero">
+  <div class="hero-tag">Aerial Computer Vision · Take-Home Assignment</div>
+  <h1>Finding tiny <em>markers</em><br>in vast aerial scenes.</h1>
+  <p class="hero-lede">
+    A multi-task deep learning model that locates ground control point markers
+    in 4096×3068 drone imagery and classifies their shape — solving both tasks
+    in a single forward pass with a ResNet18 + UNet decoder architecture.
+  </p>
+
+  <div class="hero-meta">
+    <div class="hero-meta-item">
+      <div class="hero-meta-label">Built for</div>
+      <div class="hero-meta-value">Skylark Drones</div>
+    </div>
+    <div class="hero-meta-item">
+      <div class="hero-meta-label">Stack</div>
+      <div class="hero-meta-value">PyTorch · ResNet18 · UNet</div>
+    </div>
+    <div class="hero-meta-item">
+      <div class="hero-meta-label">Training time</div>
+      <div class="hero-meta-value">~25 min · Colab T4</div>
+    </div>
+    <div class="hero-meta-item">
+      <div class="hero-meta-label">Dataset</div>
+      <div class="hero-meta-value">996 images · 3 classes</div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ KPI BAND ============ -->
+<div class="kpi-band">
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-label">Classification Accuracy</div>
+      <div class="kpi-value">1.000</div>
+      <div class="kpi-sub">macro F1 ≈ 1.000</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">PCK @ 50 px</div>
+      <div class="kpi-value">0.707</div>
+      <div class="kpi-sub">71% within 50 pixels</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">PCK @ 25 px</div>
+      <div class="kpi-value">0.573</div>
+      <div class="kpi-sub">57% within 25 pixels</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">PCK @ 10 px</div>
+      <div class="kpi-value">0.247</div>
+      <div class="kpi-sub">25% within 10 pixels</div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ THE PROBLEM ============ -->
+<section id="problem" class="fade-up">
+  <div class="section-tag">§ 01 — The Problem</div>
+  <h2 class="section-title">A surveyor's chalk on a satellite's canvas.</h2>
+
+  <p class="prose">
+    Drone-based photogrammetry maps construction sites, mines, and infrastructure projects with
+    centimeter-level accuracy. To anchor the resulting 3D models to real GPS coordinates, surveyors
+    place physical markers on the ground — <strong>Ground Control Points</strong>, or GCPs — before
+    flying the drone.
+  </p>
+  <p class="prose">
+    These markers are tiny. In a 4096-pixel-wide aerial image, a GCP might span just 60-100 pixels.
+    Locating their exact center across thousands of images, manually, is the kind of repetitive
+    high-precision work that humans hate and computers should do.
+  </p>
+  <p class="prose">
+    The task: build a model that, given a drone image, predicts <em>(x, y)</em> for the marker center
+    and classifies the marker shape — <strong>Cross</strong>, <strong>Square</strong>, or
+    <strong>L-Shape</strong>. Both at once.
+  </p>
+</section>
+
+<!-- ============ THE APPROACH ============ -->
+<section id="approach" class="fade-up">
+  <div class="section-tag">§ 02 — Approach</div>
+  <h2 class="section-title">Heatmaps, not coordinates.</h2>
+
+  <p class="prose">
+    The intuitive approach is to add a 2-output linear layer on a CNN and regress
+    <code>(x, y)</code> directly. <em>It does not work.</em> Across multiple loss formulations and
+    hyperparameter sweeps, the model collapsed to predicting the image center for every input.
+  </p>
+  <p class="prose">
+    The fix is architectural, not numerical. Instead of regressing scalars, the model produces a
+    <strong>128×128 heatmap</strong> with a Gaussian peak at the marker location, then decodes it
+    with soft-argmax for sub-pixel precision. Spatial information is preserved end-to-end.
+  </p>
+
+  <figure>
+    <img src="assets/architecture.png" alt="Multi-task heatmap model architecture diagram">
+    <figcaption>Fig. 01 — ResNet18 encoder feeds a UNet-style decoder (heatmap head) and a global-pooling classifier. Skip connections preserve spatial detail.</figcaption>
+  </figure>
+
+  <p class="prose">
+    Two heads share the encoder: the heatmap decoder upsamples back to 1/4 input resolution with
+    skip connections (UNet pattern), while the classifier uses global average pooling on the deepest
+    features. <strong>Loss</strong>: <code>1000 × MSE(heatmap) + class-weighted CE(shape)</code>.
+  </p>
+</section>
+
+<!-- ============ DATA HANDLING ============ -->
+<section id="data" class="fade-up">
+  <div class="section-tag">§ 03 — Data Handling</div>
+  <h2 class="section-title">The dataset lied. Multiple times.</h2>
+
+  <p class="prose">
+    The assignment described "real-world production conditions, not perfectly sanitized." It wasn't
+    bluffing. EDA before training surfaced four distinct discrepancies between the spec and reality:
+  </p>
+
+  <div class="findings">
+    <div class="finding">
+      <div class="finding-label">Issue 01 — Resolution</div>
+      <div class="finding-issue">Spec said 2048×1365. Actual: 4096×3068 / 4096×2730.</div>
+      <div class="finding-fix">Fix: read each image's true dimensions; normalize keypoint coordinates per-image.</div>
+    </div>
+    <div class="finding">
+      <div class="finding-label">Issue 02 — Label Naming</div>
+      <div class="finding-issue">Spec said "L-Shaped". JSON contained "L-Shape".</div>
+      <div class="finding-fix">Fix: trust the data, not the documentation.</div>
+    </div>
+    <div class="finding">
+      <div class="finding-label">Issue 03 — Class Imbalance</div>
+      <div class="finding-issue">L-Shape 49% / Square 33% / Cross 18%.</div>
+      <div class="finding-fix">Fix: inverse-frequency weighted cross-entropy loss.</div>
+    </div>
+    <div class="finding">
+      <div class="finding-label">Issue 04 — Phantom Class</div>
+      <div class="finding-issue">4 samples labeled "Unknown" with no documentation.</div>
+      <div class="finding-fix">Fix: dropped from training; flagged in writeup.</div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ RESULTS ============ -->
+<section id="results" class="fade-up">
+  <div class="section-tag">§ 04 — Results</div>
+  <h2 class="section-title">Training curves &amp; validation metrics.</h2>
+
+  <p class="prose">
+    The model trained for 12 epochs with cosine learning-rate scheduling. After epoch 3, the
+    heatmap began to sharpen and PCK metrics climbed monotonically through the rest of training.
+    Classification accuracy was solved by epoch 3 and held steady.
+  </p>
+
+  <figure>
+    <img src="assets/training_curves.png" alt="Training and validation loss curves alongside PCK and classification metrics">
+    <figcaption>Fig. 02 — Loss (log scale, left) and PCK / accuracy (right) over 11 logged epochs. Validation loss closely tracks training loss; no overfitting observed.</figcaption>
+  </figure>
+
+  <div class="pull-quote">
+    <p class="pull-quote-text">
+      Going from <em>PCK = 0.000</em> to <em>PCK@50 = 0.707</em> wasn't a hyperparameter
+      tweak — it was switching architectures.
+    </p>
+  </div>
+</section>
+
+<!-- ============ ENGINEERING JOURNEY ============ -->
+<section id="journey" class="fade-up">
+  <div class="section-tag">§ 05 — Engineering Journey</div>
+  <h2 class="section-title">Five attempts. Four failures. <em>One lesson.</em></h2>
+
+  <p class="prose">
+    The most useful artifact in this project isn't the final model — it's the debug trail. Each
+    failed attempt narrowed the hypothesis space until the architectural fix became unavoidable.
+  </p>
+
+  <div class="journey">
+    <div class="journey-header">
+      <div>№</div>
+      <div>Approach</div>
+      <div>PCK@50</div>
+      <div>Lesson</div>
+    </div>
+    <div class="journey-row">
+      <div class="journey-num">01</div>
+      <div class="journey-approach"><strong>Direct regression</strong> · MSE×10 + sigmoid output</div>
+      <div class="journey-pck">0.000</div>
+      <div class="journey-lesson">Predictions stuck near (0.5, 0.5). Sigmoid saturates gradients.</div>
+    </div>
+    <div class="journey-row">
+      <div class="journey-num">02</div>
+      <div class="journey-approach"><strong>SmoothL1</strong> · weight 100×, low beta</div>
+      <div class="journey-pck">0.000</div>
+      <div class="journey-lesson">Loss decreased, predictions did not. Loss-balance issue suspected.</div>
+    </div>
+    <div class="journey-row">
+      <div class="journey-num">03</div>
+      <div class="journey-approach"><strong>Linear output</strong> · bias init at center, MSE×200</div>
+      <div class="journey-pck">0.000</div>
+      <div class="journey-lesson">Pred std rose to 0.05 — better but still collapsed.</div>
+    </div>
+    <div class="journey-row">
+      <div class="journey-num">04</div>
+      <div class="journey-approach"><strong>L1 loss</strong> · head LR 5e-3, gradient clipping</div>
+      <div class="journey-pck">0.000</div>
+      <div class="journey-lesson">Diagnostic: pred_std=0.05 vs gt_std=0.23. Architectural problem confirmed.</div>
+    </div>
+    <div class="journey-row success">
+      <div class="journey-num">05</div>
+      <div class="journey-approach"><strong>Heatmap regression</strong> · UNet decoder, soft-argmax</div>
+      <div class="journey-pck">0.707</div>
+      <div class="journey-lesson">Worked first try. Right architecture &gt; better tuning.</div>
+    </div>
+  </div>
+
+  <p class="prose" style="margin-top: 32px;">
+    The breakthrough diagnostic was logging <code>pred.std()</code> vs <code>gt.std()</code> during
+    validation — once <em>0.05 vs 0.23</em> appeared on screen, "the model can't move predictions
+    away from the mean" became unambiguous, and that's an architecture problem, not a learning-rate
+    problem. Direct (x, y) regression discards spatial information through global pooling. Heatmap
+    regression preserves it.
+  </p>
+</section>
+
+<!-- ============ CTA ============ -->
+<div id="demo" class="cta-section">
+  <div class="cta-inner">
+    <div class="cta-tag">Live Demo · Source Code</div>
+    <h2 class="cta-title">See it run on <em>your</em> drone images.</h2>
+    <p class="cta-sub">
+      Upload any aerial image with a GCP marker and watch the model predict the location and
+      shape in real time. All source code and the trained model are available on GitHub.
+    </p>
+    <div class="cta-buttons">
+      <a href="https://huggingface.co/spaces/sanjana-0809/gcp-marker-detector" class="btn btn-primary" target="_blank">Open Live Demo</a>
+      <a href="https://github.com/sanjana-0809/skylark_assessment" class="btn" target="_blank">View Source on GitHub</a>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FOOTER ============ -->
+<footer>
+  <div class="footer-inner">
+    <div class="footer-mono">© 2026 Sanjana · Built with PyTorch &amp; sleepless conviction</div>
+    <div class="footer-links">
+      <a href="https://github.com/sanjana-0809/skylark_assessment" target="_blank">GitHub</a>
+      <a href="https://huggingface.co/spaces/sanjana-0809/gcp-marker-detector" target="_blank">Live Demo</a>
+      <a href="https://skylarkdrones.com" target="_blank">Skylark Drones</a>
+    </div>
+  </div>
+</footer>
+
+</main>
+
+<script>
+// Only enable fade-up animations when JS is available
+document.body.classList.add('js-ready');
+
+// Intersection observer for fade-up animations
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.classList.add('in');
+      observer.unobserve(entry.target);
+    }
+  });
+}, { threshold: 0.05, rootMargin: '0px 0px -10% 0px' });
+
+// Mark the first fade-up section as already in view on load (it's visible)
+document.querySelectorAll('.fade-up').forEach(el => {
+  const rect = el.getBoundingClientRect();
+  if (rect.top < window.innerHeight) {
+    el.classList.add('in');
+  } else {
+    observer.observe(el);
+  }
+});
+</script>
+
+</body>
+</html>
